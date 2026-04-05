@@ -1,28 +1,72 @@
-name: CI
+name: Backend CI  # Define the name of the CI workflow
 
-on:
-    push:
-        branches:
-            - main
-    pull_request:
-        branches:
-            - main
+on:  # Define the event that triggers the workflow
+  push:  # Trigger the workflow on a push event
+    branches:  # Specify the branches to monitor
+      - main  # Run CI/CD pipeline only when code is pushed to the main branch
 
-jobs:
-    build:
-        runs-on: ubuntu-latest
+jobs:  # Define the jobs that will run in this workflow
+  test:  # Job name (test job)
+    name: Run Tests  # Display name for the job
+    runs-on: self-hosted  # Specify the runner (self-hosted machine) to execute the job
 
-        steps:
-        - name: Checkout code
-            uses: actions/checkout@v2
+    strategy:  # Define a strategy for running the job
+      matrix:  # Use a matrix to run the job in multiple environments
+        node-version: [22]  # Test using Node.js version 22
 
-        - name: Set up Node.js
-            uses: actions/setup-node@v2
-            with:
-                node-version: '14'
+    environment: MONGO_URI  # Define the environment variable for MongoDB connection
 
-        - name: Install dependencies
-            run: npm install
+    steps:  # Define the sequence of steps to be executed in this job
 
-        - name: Run tests
-            run: npm test
+      - name: Checkout Code
+        uses: actions/checkout@v3  # Clone the repository code to the runner
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3  # Use the setup-node action to configure Node.js
+        with:
+          node-version: ${{ matrix.node-version }}  # Use the Node.js version specified in the matrix
+
+      - name: Print Env Secret
+        env:  # Define environment variables for this step
+          MONGO_URI: ${{ secrets.MONGO_URI }}  # MongoDB connection string
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}  # JWT authentication secret
+          PORT: ${{ secrets.PORT }}  # Application port
+        run: |  # Run multiple shell commands
+          echo "Secret 1 is: $MONGO_URI"  # Print MongoDB URI
+          echo "Secret 2 is: $JWT_SECRET"  # Print JWT Secret
+          echo "Secret 3 is: $PORT"  # Print Application Port
+
+      - run: pm2 stop all || true  # Stop all PM2-managed processes (ignore error if none running)
+
+      - name: Install Backend Dependencies
+        working-directory: ./backend  # Navigate to backend folder
+        run: |  # Run multiple commands
+          npm install --global yarn  # Install Yarn globally
+          yarn --version  # Verify Yarn installation
+          yarn install  # Install backend dependencies using Yarn
+
+      - name: Install Frontend Dependencies
+        working-directory: ./frontend  # Navigate to frontend folder
+        run: |  # Run multiple commands
+          df -h  # Show disk space usage
+          sudo rm -rf ./build  # Remove existing build directory
+          yarn install  # Install frontend dependencies
+          yarn run build  # Build the frontend application
+
+      - name: Run Backend Tests
+        env:  # Define environment variables for this step
+          MONGO_URI: ${{ secrets.MONGO_URI }}  # MongoDB connection string
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}  # JWT authentication secret
+          PORT: ${{ secrets.PORT }}  # Application port
+        working-directory: ./backend  # Navigate to backend folder
+        run: npm test  # Run backend tests
+
+      - run: npm ci  # Install dependencies using npm clean install
+
+      - run: |  # Run multiple commands
+          cd ./backend  # Navigate to backend folder
+          touch .env  # Create an empty .env file
+          echo "${{ secrets.PROD }}" > .env  # Write production secrets to .env file
+
+      - run: pm2 start all || true  # Start all PM2-managed processes
+      - run: pm2 restart all || true  # Restart all PM2-managed processes
